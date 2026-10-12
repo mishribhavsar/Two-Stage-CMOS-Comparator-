@@ -1,0 +1,92 @@
+;; comparator_pvt.ocn: PVT corners + overdrive sweep, DC/tran/AC measured per run, written to CSV
+;; Run in CIW: load("comparator_pvt.ocn")
+
+;; Set these from ADE L > Session > Save Ocean Script
+simulator( 'spectre )
+design(     "<path>/diff_comparator/spectre/schematic/netlist/netlist" )
+resultsDir( "<path>/diff_comparator/spectre/schematic" )
+modelFile( '("<path>/gpdk090.scs" "NN") )
+
+vref = 0.7
+save( 'i "/VDD_SRC/PLUS" )
+
+analysis( 'dc   ?param "vin" ?start "680m" ?stop "720m" ?step "50u" )
+analysis( 'tran ?stop "60n" ?errpreset "conservative" )
+analysis( 'ac   ?start "1" ?stop "100G" ?dec "20" )
+
+procedure( sc(x k)   when( numberp(x) x * k ) )
+procedure( sub2(a b) when( and(numberp(a) numberp(b)) a - b ) )
+procedure( fmt(x)    if( numberp(x) then sprintf(nil "%.6g" x) else "NA" ) )
+
+procedure( runPoint(lbl vsup tc vod fp)
+  let( (out x vinp i trip off a1 gain tpLH tpHL tpavg trise tfall
+        iavg pavg a1db f3db ugf aoutdb)
+
+    desVar( "vsup" vsup )
+    desVar( "vod"  vod  )
+    desVar( "vin"  vref )
+    temp( tc )
+    run()
+
+    ;; DC
+    selectResult( 'dc )
+    out  = VS("/OUT")
+    x    = VS("/X")
+    trip = cross( out vsup/2 1 "rising" )
+    off  = sub2( trip vref )
+    a1   = when( trip abs( value( deriv(x) trip ) ) )
+    gain = ymax( abs( deriv(out) ) )
+
+    ;; Transient
+    selectResult( 'tran )
+    out  = VT("/OUT")
+    vinp = VT("/VINP")
+    i    = IT("/VDD_SRC/PLUS")
+    tpLH  = sub2( cross(out vsup/2 1 "rising")  cross(vinp vref 1 "rising")  )
+    tpHL  = sub2( cross(out vsup/2 1 "falling") cross(vinp vref 1 "falling") )
+    tpavg = when( and(tpLH tpHL) (tpLH + tpHL) / 2 )
+    trise = sub2( cross(out 0.9*vsup 1 "rising")  cross(out 0.1*vsup 1 "rising")  )
+    tfall = sub2( cross(out 0.1*vsup 1 "falling") cross(out 0.9*vsup 1 "falling") )
+    iavg  = -average( clip( i 5e-9 45e-9 ) )   ; 2 input periods
+    pavg  = iavg * vsup
+
+    ;; AC
+    selectResult( 'ac )
+    a1db   = value( dB20( VF("/X") ) 1 )
+    f3db   = bandwidth( VF("/X") 3 "low" )
+    ugf    = cross( dB20( VF("/X") ) 0 1 "falling" )
+    aoutdb = value( dB20( VF("/OUT") ) 1 )
+
+    ;; units: mV, ns, uA, uW, MHz, GHz
+    fprintf( fp "%s,%g,%g,%g,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n"
+      lbl vsup tc vod*1e3
+      fmt(sc(trip 1e3)) fmt(sc(off 1e3)) fmt(a1) fmt(gain)
+      fmt(sc(tpLH 1e9)) fmt(sc(tpHL 1e9)) fmt(sc(tpavg 1e9))
+      fmt(sc(trise 1e9)) fmt(sc(tfall 1e9))
+      fmt(sc(iavg 1e6)) fmt(sc(pavg 1e6))
+      fmt(a1db) fmt(sc(f3db 1e-6)) fmt(sc(ugf 1e-9)) fmt(aoutdb) )
+
+    printf( "%-6s vsup=%g T=%g vod=%gmV  trip=%s mV  tpavg=%s ns  Pavg=%s uW\n"
+      lbl vsup tc vod*1e3
+      fmt(sc(trip 1e3)) fmt(sc(tpavg 1e9)) fmt(sc(pavg 1e6)) )
+  )
+)
+
+fp = outfile( "./comparator_pvt.csv" "w" )
+fprintf( fp "run,vsup_V,T_C,vod_mV,trip_mV,offset_mV,A1,GAIN,tpLH_ns,tpHL_ns,tpavg_ns,t_rise_ns,t_fall_ns,Iavg_uA,Pavg_uW,A1_dB,f3dB_X_MHz,UGF_X_GHz,A_OUT_dB\n" )
+
+;; (vsup temp) corners at vod = 50 mV
+corners = list( '(1.0 27) '(0.9 27) '(1.1 27) '(1.0 -40) '(1.0 125) )
+n = 0
+foreach( c corners
+  n = n + 1
+  runPoint( sprintf(nil "%d" n) car(c) cadr(c) 0.05 fp )
+)
+
+;; overdrive sweep at 1.0 V, 27 C
+foreach( v list( 0.002 0.005 0.01 0.02 0.05 0.1 )
+  runPoint( "vod" 1.0 27 v fp )
+)
+
+close( fp )
+printf( "\nDone -> ./comparator_pvt.csv\n" )
