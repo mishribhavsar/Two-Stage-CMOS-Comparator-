@@ -2,7 +2,7 @@
 
 Design, layout and post-layout verification of a 1 V two-stage CMOS comparator in Cadence Virtuoso (gpdk090, Spectre, Assura). The work includes DC, transient and AC characterization, temperature corners, an overdrive sweep, DRC/LVS-clean layout, RC parasitic extraction and Monte Carlo mismatch analysis.
 
-Team project by Mishri Bhavsar and Nishit Bhatia, Analog CMOS IC Design course, Nirma University, guided by Prof. Akash Mecwan.
+Analog CMOS IC Design course project, Nirma University, guided by Prof. Akash Mecwan.
 
 ## Circuit
 
